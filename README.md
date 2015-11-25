@@ -46,7 +46,7 @@ A KISS pure Fortran OOD class providing an abstract container for Finite Volume 
 
 ## What is FriVolous?
 
-FriVolous is a user-friendly and Object-Oriented designed class for Finite Volume block-structured numerical computations. In particular, FriVolous allows the easy handling of *metrics* data for the *robust* and efficient computation of numerical **spatial operators* in the framework of Finite Volume Methods (**FVM**). It is based on a simple yet powerful Abstract Data Type (ADT) that is *overloaded* with useful methods for handling the back-end operations necessary to compute a numerical spatial operator independently by the actual *state variable* being numerically integrated.
+FriVolous is a user-friendly and Object-Oriented designed class for Finite Volume block-structured numerical computations. In particular, FriVolous allows the easy handling of *metrics* data for the *robust* and efficient computation of numerical **spatial operators** in the framework of Finite Volume Methods (**FVM**). It is based on a simple yet powerful Abstract Data Type (ADT) that is *overloaded* with useful methods for handling the back-end operations necessary to compute a numerical spatial operator independently by the actual *state variable* being numerically integrated.
 
 FriVolous adheres to the [KISS](https://en.wikipedia.org/wiki/KISS_principle) concept.
 
