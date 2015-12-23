@@ -1,0 +1,6 @@
+[submodule "src/third_party/VecFor"]
+	path = src/third_party/VecFor
+	url = https://github.com/szaghi/VecFor
+[submodule "src/third_party/FOODIE"]
+	path = src/third_party/FOODIE
+	url = https://github.com/Fortran-FOSS-Programmers/FOODIE
