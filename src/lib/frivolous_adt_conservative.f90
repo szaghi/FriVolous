@@ -17,24 +17,28 @@ public :: conservative
 
 !-----------------------------------------------------------------------------------------------------------------------------------
 type, abstract :: conservative
+  private
   !< Abstract type for building FriVolous finite-volume conservative residuals.
 #ifdef CAF
   class(*), allocatable :: dummy_to_allow_extensions[:] !< Dummy member to allow concrete extensions with coarray members.
 #endif
   contains
+    private
     ! public deferred procedures that concrete integrand-field must implement
     ! operators
     procedure(symmetric_operator),      pass(lhs), deferred, public :: conservative_add_conservative !< Conservative+conservative.
     procedure(symmetric_operator),      pass(lhs), deferred, public :: conservative_sub_conservative !< Conservative-conservative.
-    procedure(assignment_conservative), pass(lhs), deferred, public :: assign_conservative           !< Conservative=Conservative.
+    procedure(conservative_op_real),    pass(lhs), deferred, public :: conservative_multiply_real    !< Conservative*real.
     procedure(conservative_op_real),    pass(lhs), deferred, public :: conservative_divide_real      !< Conservative/real.
     procedure(conservative_op_vector),  pass(lhs), deferred, public :: conservative_dot_vector       !< Conservative.dot.vector.
+    procedure(assignment_conservative), pass(lhs), deferred, public :: assign_conservative           !< Conservative=Conservative.
     ! operators overloading
     generic, public :: operator(+) => conservative_add_conservative !< Overloading + operator.
     generic, public :: operator(-) => conservative_sub_conservative !< Overloading - operator.
-    generic, public :: assignment(=) => assign_conservative         !< Overloading = assignament.
+    generic, public :: operator(*) => conservative_multiply_real    !< Overloading * operator.
     generic, public :: operator(/) => conservative_divide_real      !< Overloading / operator.
     generic, public :: operator(.dot.) => conservative_dot_vector   !< Overloading .dot. operator.
+    generic, public :: assignment(=) => assign_conservative         !< Overloading = assignament.
 endtype conservative
 
 abstract interface
@@ -72,7 +76,7 @@ abstract interface
   !---------------------------------------------------------------------------------------------------------------------------------
   endfunction conservative_op_vector
 
-  subroutine assignment_conservative(lhs, rhs)
+  pure subroutine assignment_conservative(lhs, rhs)
   !---------------------------------------------------------------------------------------------------------------------------------
   !< Symmetric assignment conservative = conservative.
   !---------------------------------------------------------------------------------------------------------------------------------

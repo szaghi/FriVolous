@@ -1,8 +1,6 @@
 [modes]
 modes = shared-gnu static-gnu shared-gnu-debug static-gnu-debug
         shared-intel static-intel shared-intel-debug static-intel-debug
-        tests-gnu tests-gnu-debug
-        tests-intel tests-intel-debug
 
 [common-variables]
 $CSHARED_GNU = -cpp -c -fPIC -frealloc-lhs
@@ -45,14 +43,6 @@ build_dir = ./static/
 output    = libfrivolous.a
 mklib     = static
 
-[tests-gnu]
-template  = template-static-gnu
-build_dir = ./tests/
-
-[tests-gnu-debug]
-template  = template-static-gnu-debug
-build_dir = ./tests/
-
 # Intel
 [shared-intel]
 template  = template-shared-intel
@@ -81,14 +71,6 @@ target    = frivolous.f90
 build_dir = ./static/
 output    = libfrivolous.a
 mklib     = static
-
-[tests-intel]
-template = template-static-intel
-build_dir = ./tests/
-
-[tests-intel-debug]
-template  = template-static-intel-debug
-build_dir = ./tests/
 
 #templates
 [template-shared-gnu]

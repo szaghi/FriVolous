@@ -97,22 +97,30 @@ type :: finite_volume_block
   !<The nodes of cells are not required to be on the Cartesian coordinates, thus allowing a general
   !< curvilinear mesh: the are 3 implicit coordinate lines, *i*, *j* and *k* that are not required to be orthogonal.
   private
+  ! block dimensions
   integer(I_P)              :: Ng(1:6)=[0, 0, 0, 0, 0, 0] !< Number of ghost cells (e.g. used for imposing boundary conditions).
   integer(I_P)              :: Ni=0                       !< Number of cells along the i-th implicit coordinate.
   integer(I_P)              :: Nj=0                       !< Number of cells along the j-th implicit coordinate.
   integer(I_P)              :: Nk=0                       !< Number of cells along the k-th implicit coordinate.
+  ! dynamic array members
   type(vector), allocatable :: node(:,:,:)                !< Nodes coordinates.
-  type(vector), allocatable :: FNi(:,:,:)                 !< Faces normals along i-th implicit coordinate. NormL2 is the face area.
-  type(vector), allocatable :: FNj(:,:,:)                 !< Faces normals along j-th implicit coordinate. NormL2 is the face area.
-  type(vector), allocatable :: FNk(:,:,:)                 !< Faces normals along k-th implicit coordinate. NormL2 is the face area.
+  type(vector), allocatable :: FNi(:,:,:)                 !< Faces normal along i-th implicit coordinate. NormL2 is the face area.
+  type(vector), allocatable :: FNj(:,:,:)                 !< Faces normal along j-th implicit coordinate. NormL2 is the face area.
+  type(vector), allocatable :: FNk(:,:,:)                 !< Faces normal along k-th implicit coordinate. NormL2 is the face area.
+  real(R_P),    allocatable :: FAi(:,:,:)                 !< Faces area along i-th implicit coordinate. Optionally allocated.
+  real(R_P),    allocatable :: FAj(:,:,:)                 !< Faces area along i-th implicit coordinate. Optionally allocated.
+  real(R_P),    allocatable :: FAk(:,:,:)                 !< Faces area along i-th implicit coordinate. Optionally allocated.
   real(R_P),    allocatable :: volume(:,:,:)              !< Cells volume.
+  ! scalar members
   type(vector)              :: emin                       !< Coordinates of minimum abscissa of the block.
   type(vector)              :: emax                       !< Coordinates of maximum abscissa of the block.
+  logical                   :: store_face_area=.false.    !< Activate (separate) faces area storing.
   logical                   :: cartesian=.false.          !< Flag for checking if the block is Cartesian.
   logical                   :: nullify_x=.false.          !< Nullify X direction (2D yz, 1D y or z domain).
   logical                   :: nullify_y=.false.          !< Nullify Y direction (2D xy, 1D x or y domain).
   logical                   :: nullify_z=.false.          !< Nullify Z direction (2D xy, 1D x or y domain).
   contains
+    private
     procedure, pass(self), public :: init             !< Init block.
     procedure, pass(self), public :: destroy          !< Destroy block.
     procedure, pass(self), public :: linspace         !< Create a Cartesian block with linearly spaced nodes.
@@ -120,45 +128,82 @@ type :: finite_volume_block
     procedure, pass(self), public :: node2center      !< Compute cell centers coordinates from cell nodes.
     procedure, pass(self), public :: interpolate2node !< Interpolate cell-centered variable to nodes.
     procedure, pass(self), public :: residuals        !< Compute finite-volume residuals.
+    procedure, pass(self), public :: residuals_fast   !< Compute finite-volume residuals. Fast version withoud dot product.
+    procedure, pass(self), public :: is_cartesian     !< Return .true. is the block is Cartesian, .false. otherwise.
     final                         :: finalize         !< Finalize block.
+    ! operators
+    procedure, pass(lhs), public :: assign_block      !< Block = Block.
+    ! operators overloading
+    generic, public :: assignment(=) => assign_block  !< Overloading = assignament.
 endtype finite_volume_block
 !-----------------------------------------------------------------------------------------------------------------------------------
 contains
   ! public methods
-  pure subroutine init(self, cartesian, nullify_x, nullify_y, nullify_z, emin, emax, Ng, node, Ni, Nj, Nk)
+  subroutine init(self, store_face_area, cartesian, nullify_x, nullify_y, nullify_z, emin, emax, Ng, node, Ni, Nj, Nk)
   !---------------------------------------------------------------------------------------------------------------------------------
   !< Init block.
   !---------------------------------------------------------------------------------------------------------------------------------
-  class(finite_volume_block), intent(INOUT) :: self           !< Block.
-  logical,      optional,     intent(IN)    :: cartesian      !< Flag for checking if the block is Cartesian.
-  logical,      optional,     intent(IN)    :: nullify_x      !< Nullify X direction (2D yz, 1D y or z domain).
-  logical,      optional,     intent(IN)    :: nullify_y      !< Nullify Y direction (2D xy, 1D x or y domain).
-  logical,      optional,     intent(IN)    :: nullify_z      !< Nullify Z direction (2D xy, 1D x or y domain).
-  type(vector), optional,     intent(IN)    :: emin           !< Coordinates of minimum abscissa of the block.
-  type(vector), optional,     intent(IN)    :: emax           !< Coordinates of maximum abscissa of the block.
-  integer(I_P), optional,     intent(IN)    :: Ng(1:)         !< Number of ghost cells.
-  type(vector), optional,     intent(IN)    :: node(0:,0:,0:) !< Nodes coordinates.
-  integer(I_P),               intent(IN)    :: Ni             !< Number of cells along the i-th implicit coordinate.
-  integer(I_P),               intent(IN)    :: Nj             !< Number of cells along the j-th implicit coordinate.
-  integer(I_P),               intent(IN)    :: Nk             !< Number of cells along the k-th implicit coordinate.
-  integer(I_P)                              :: Ng_(1:6)       !< Number of ghost cells, dummy varibale.
+  class(finite_volume_block), intent(INOUT) :: self            !< Block.
+  logical,      optional,     intent(IN)    :: store_face_area !< Activate (separate) faces area storing.
+  logical,      optional,     intent(IN)    :: cartesian       !< Flag for checking if the block is Cartesian.
+  logical,      optional,     intent(IN)    :: nullify_x       !< Nullify X direction (2D yz, 1D y or z domain).
+  logical,      optional,     intent(IN)    :: nullify_y       !< Nullify Y direction (2D xy, 1D x or y domain).
+  logical,      optional,     intent(IN)    :: nullify_z       !< Nullify Z direction (2D xy, 1D x or y domain).
+  type(vector), optional,     intent(IN)    :: emin            !< Coordinates of minimum abscissa of the block.
+  type(vector), optional,     intent(IN)    :: emax            !< Coordinates of maximum abscissa of the block.
+  integer(I_P), optional,     intent(IN)    :: Ng(1:)          !< Number of ghost cells.
+  integer(I_P), optional,     intent(IN)    :: Ni              !< Number of cells along the i-th implicit coordinate.
+  integer(I_P), optional,     intent(IN)    :: Nj              !< Number of cells along the j-th implicit coordinate.
+  integer(I_P), optional,     intent(IN)    :: Nk              !< Number of cells along the k-th implicit coordinate.
+  type(vector), optional,     intent(IN)    :: node(0:,0:,0:)  !< Nodes coordinates.
+  integer(I_P)                              :: Ng_(1:6)        !< Number of ghost cells, dummy varibale.
   !---------------------------------------------------------------------------------------------------------------------------------
 
   !---------------------------------------------------------------------------------------------------------------------------------
+  if (((.not.present(Ni)).and.(.not.present(Nj)).and.(.not.present(Nk))) .and. (.not.present(node))) then
+    ! raise an error: one between node array or i-j-k dimensions must be provided
+    return
+  endif
+
   call self%destroy
+
+  ! set scalar members fisrt
+  if (present(emin           )) self%emin            = emin
+  if (present(emax           )) self%emax            = emax
+  if (present(store_face_area)) self%store_face_area = store_face_area
+  if (present(cartesian      )) self%cartesian       = cartesian
+  if (present(nullify_x      )) self%nullify_x       = nullify_x
+  if (present(nullify_y      )) self%nullify_y       = nullify_y
+  if (present(nullify_z      )) self%nullify_z       = nullify_z
+
+  ! set block dimensions
   Ng_ = 0 ; if (present(Ng)) Ng_ = Ng ; self%Ng = Ng_
+  if (present(node)) then
+    ! infer dimensions from node array
+    self%Ni = size(node, dim=1) - self%Ng(1) - self%Ng(2) - 1
+    self%Nj = size(node, dim=2) - self%Ng(3) - self%Ng(4) - 1
+    self%Nk = size(node, dim=3) - self%Ng(5) - self%Ng(6) - 1
+  else
+    ! dimensions are explicitly passed
+    self%Ni = Ni
+    self%Nj = Nj
+    self%Nk = Nk
+  endif
+
+  ! allocate dynamic array members
   allocate(self%node  (0 - Ng_(1):Ni + Ng_(2), 0 - Ng_(3):Nj + Ng_(4), 0 - Ng_(5):Nk + Ng_(6)))
   allocate(self%FNi   (0 - Ng_(1):Ni + Ng_(2), 1 - Ng_(3):Nj + Ng_(4), 1 - Ng_(5):Nk + Ng_(6)))
   allocate(self%FNj   (1 - Ng_(1):Ni + Ng_(2), 0 - Ng_(3):Nj + Ng_(4), 1 - Ng_(5):Nk + Ng_(6)))
   allocate(self%FNk   (1 - Ng_(1):Ni + Ng_(2), 1 - Ng_(3):Nj + Ng_(4), 0 - Ng_(5):Nk + Ng_(6)))
   allocate(self%volume(1 - Ng_(1):Ni + Ng_(2), 1 - Ng_(3):Nj + Ng_(4), 1 - Ng_(5):Nk + Ng_(6)))
-  if (present(cartesian)) self%cartesian = cartesian
-  if (present(nullify_x)) self%nullify_x = nullify_x
-  if (present(nullify_y)) self%nullify_y = nullify_y
-  if (present(nullify_z)) self%nullify_z = nullify_z
-  if (present(emin     )) self%emin      = emin
-  if (present(emax     )) self%emax      = emax
-  if (present(node     )) self%node      = node
+  if (self%store_face_area) then
+    allocate(self%FAi (0 - Ng_(1):Ni + Ng_(2), 1 - Ng_(3):Nj + Ng_(4), 1 - Ng_(5):Nk + Ng_(6)))
+    allocate(self%FAj (1 - Ng_(1):Ni + Ng_(2), 0 - Ng_(3):Nj + Ng_(4), 1 - Ng_(5):Nk + Ng_(6)))
+    allocate(self%FAk (1 - Ng_(1):Ni + Ng_(2), 1 - Ng_(3):Nj + Ng_(4), 0 - Ng_(5):Nk + Ng_(6)))
+  endif
+
+  ! set nodes coordinates if passed
+  if (present(node)) self%node = node
   return
   !---------------------------------------------------------------------------------------------------------------------------------
   endsubroutine init
@@ -168,7 +213,7 @@ contains
   !< Destroy block.
   !---------------------------------------------------------------------------------------------------------------------------------
   class(finite_volume_block), intent(INOUT) :: self  !< Block.
-  type(finite_volume_block)                 :: fresh !< Instance of a new, fresh block used for reset scalars to defaults.
+  ! type(finite_volume_block)                 :: fresh !< Instance of a new, fresh block used for reset scalars to defaults.
   !---------------------------------------------------------------------------------------------------------------------------------
 
   !---------------------------------------------------------------------------------------------------------------------------------
@@ -176,6 +221,9 @@ contains
   if (allocated(self%FNi   )) deallocate(self%FNi   )
   if (allocated(self%FNj   )) deallocate(self%FNj   )
   if (allocated(self%FNk   )) deallocate(self%FNk   )
+  if (allocated(self%FAi   )) deallocate(self%FAi   )
+  if (allocated(self%FAj   )) deallocate(self%FAj   )
+  if (allocated(self%FAk   )) deallocate(self%FAk   )
   if (allocated(self%volume)) deallocate(self%volume)
   ! self = fresh
   return
@@ -445,7 +493,7 @@ contains
   !---------------------------------------------------------------------------------------------------------------------------------
   !< Compute finite-volume residuals.
   !---------------------------------------------------------------------------------------------------------------------------------
-  class(finite_volume_block), intent(IN)    :: self  !< Block.
+  class(finite_volume_block), intent(IN)    :: self                                             !< Block.
   class(conservative),        intent(IN)    :: Fi(0-self%Ng(1):, 1-self%Ng(3):, 1-self%Ng(5):)  !< Fluxes on *i* interfaces.
   class(conservative),        intent(IN)    :: Fj(1-self%Ng(1):, 0-self%Ng(3):, 1-self%Ng(5):)  !< Fluxes on *j* interfaces.
   class(conservative),        intent(IN)    :: Fk(1-self%Ng(1):, 1-self%Ng(3):, 0-self%Ng(5):)  !< Fluxes on *k* interfaces.
@@ -456,22 +504,76 @@ contains
   !---------------------------------------------------------------------------------------------------------------------------------
 
   !---------------------------------------------------------------------------------------------------------------------------------
-  select type(Fi)
-  class is (conservative)
-  do k=1, self%Nk
-    do j=1, self%Nj
-      do i=1, self%Ni
-        res(i, j, k) = ((Fi(i-1, j  ,  k  ).dot.self%FNi(i-1, j  , k  )) - (Fi(i, j, k).dot.self%FNi(i, j, k))  &
-                     +  (Fj(i  , j-1,  k  ).dot.self%FNj(i  , j-1, k  )) - (Fj(i, j, k).dot.self%FNj(i, j, k))  &
-                     +  (Fk(i  , j  ,  k-1).dot.self%FNk(i  , j  , k-1)) - (Fk(i, j, k).dot.self%FNk(i, j, k))) &
-                     / self%volume(i, j, k)
+  ! select type(Fi)
+  ! class is (conservative)
+    do k=1, self%Nk
+      do j=1, self%Nj
+        do i=1, self%Ni
+          res(i, j, k) = ((Fi(i-1, j  ,  k  ).dot.self%FNi(i-1, j  , k  )) - (Fi(i, j, k).dot.self%FNi(i, j, k))  &
+                       +  (Fj(i  , j-1,  k  ).dot.self%FNj(i  , j-1, k  )) - (Fj(i, j, k).dot.self%FNj(i, j, k))  &
+                       +  (Fk(i  , j  ,  k-1).dot.self%FNk(i  , j  , k-1)) - (Fk(i, j, k).dot.self%FNk(i, j, k))) &
+                       / self%volume(i, j, k)
+        enddo
       enddo
     enddo
-  enddo
-endselect
+  ! endselect
   return
   !---------------------------------------------------------------------------------------------------------------------------------
   endsubroutine residuals
+
+  subroutine residuals_fast(self, Fi, Fj, Fk, res)
+  !---------------------------------------------------------------------------------------------------------------------------------
+  !< Compute finite-volume residuals.
+  !<
+  !< @note this version of *residuals* compuation is based on the assumption that fluxes *Fi, Fj, Fk* are already provided as the
+  !< *normal (to the interface) component*, thus the dot product can be omitted. As a matter of facts, during the computation of
+  !< fluxes the normal and tangential components are generally computed separately: there is no need to perform the dot product
+  !< twice, thus, in those cases, this residual procedure should be faster than the more general above one.
+  !<
+  !< @note this version of *residuals* assumes that *faces area* are stored *separately* into `self%FA(i,j,k)`, however no check is
+  !< done (for not hurting performances).
+  !---------------------------------------------------------------------------------------------------------------------------------
+  class(finite_volume_block), intent(IN)    :: self                                             !< Block.
+  class(conservative),        intent(IN)    :: Fi(0-self%Ng(1):, 1-self%Ng(3):, 1-self%Ng(5):)  !< Fluxes on *i* interfaces.
+  class(conservative),        intent(IN)    :: Fj(1-self%Ng(1):, 0-self%Ng(3):, 1-self%Ng(5):)  !< Fluxes on *j* interfaces.
+  class(conservative),        intent(IN)    :: Fk(1-self%Ng(1):, 1-self%Ng(3):, 0-self%Ng(5):)  !< Fluxes on *k* interfaces.
+  class(conservative),        intent(INOUT) :: res(1:, 1:, 1:)                                  !< Residuals.
+  integer(I_P)                              :: i                                                !< Counter.
+  integer(I_P)                              :: j                                                !< Counter.
+  integer(I_P)                              :: k                                                !< Counter.
+  !---------------------------------------------------------------------------------------------------------------------------------
+
+  !---------------------------------------------------------------------------------------------------------------------------------
+  ! select type(Fi)
+  ! class is (conservative)
+    do k=1, self%Nk
+      do j=1, self%Nj
+        do i=1, self%Ni
+          res(i, j, k) = ((Fi(i-1, j  ,  k  ) * self%FAi(i-1, j  , k  )) - (Fi(i, j, k) * self%FAi(i, j, k))  &
+                       +  (Fj(i  , j-1,  k  ) * self%FAj(i  , j-1, k  )) - (Fj(i, j, k) * self%FAj(i, j, k))  &
+                       +  (Fk(i  , j  ,  k-1) * self%FAk(i  , j  , k-1)) - (Fk(i, j, k) * self%FAk(i, j, k))) &
+                       / self%volume(i, j, k)
+        enddo
+      enddo
+    enddo
+  ! endselect
+  return
+  !---------------------------------------------------------------------------------------------------------------------------------
+  endsubroutine residuals_fast
+
+  elemental function is_cartesian(self) result(is_it)
+  !---------------------------------------------------------------------------------------------------------------------------------
+  !< Return .true. is the block is Cartesian, .false. otherwise.
+  !---------------------------------------------------------------------------------------------------------------------------------
+  class(finite_volume_block), intent(IN) :: self  !< Block.
+  logical                                :: is_it !< Is it Cartesian or not?
+  !---------------------------------------------------------------------------------------------------------------------------------
+
+  !---------------------------------------------------------------------------------------------------------------------------------
+  is_it = self%cartesian
+  return
+  !---------------------------------------------------------------------------------------------------------------------------------
+  endfunction is_cartesian
 
   ! private methods
   subroutine finalize(self)
@@ -486,4 +588,36 @@ endselect
   return
   !---------------------------------------------------------------------------------------------------------------------------------
   endsubroutine finalize
+
+  pure subroutine assign_block(lhs, rhs)
+  !---------------------------------------------------------------------------------------------------------------------------------
+  !< Symmetric assignment block = block.
+  !---------------------------------------------------------------------------------------------------------------------------------
+  class(finite_volume_block), intent(INOUT) :: lhs !< Left hand side.
+  type(finite_volume_block),  intent(IN)    :: rhs !< Right hand side.
+  !---------------------------------------------------------------------------------------------------------------------------------
+
+  !---------------------------------------------------------------------------------------------------------------------------------
+                             lhs%Ng              = rhs%Ng
+                             lhs%Ni              = rhs%Ni
+                             lhs%Nj              = rhs%Nj
+                             lhs%Nk              = rhs%Nk
+  if (allocated(rhs%node  )) lhs%node            = rhs%node
+  if (allocated(rhs%FNi   )) lhs%FNi             = rhs%FNi
+  if (allocated(rhs%FNj   )) lhs%FNj             = rhs%FNj
+  if (allocated(rhs%FNk   )) lhs%FNk             = rhs%FNk
+  if (allocated(rhs%FAi   )) lhs%FAi             = rhs%FAi
+  if (allocated(rhs%FAj   )) lhs%FAj             = rhs%FAj
+  if (allocated(rhs%FAk   )) lhs%FAk             = rhs%FAk
+  if (allocated(rhs%volume)) lhs%volume          = rhs%volume
+                             lhs%emin            = rhs%emin
+                             lhs%emax            = rhs%emax
+                             lhs%store_face_area = rhs%store_face_area
+                             lhs%cartesian       = rhs%cartesian
+                             lhs%nullify_x       = rhs%nullify_x
+                             lhs%nullify_y       = rhs%nullify_y
+                             lhs%nullify_z       = rhs%nullify_z
+  return
+  !---------------------------------------------------------------------------------------------------------------------------------
+  endsubroutine assign_block
 endmodule frivolous

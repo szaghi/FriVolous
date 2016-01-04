@@ -1,5 +1,6 @@
 project: FriVolous
 project_dir: ./src
+exclude_dir: ./src/third_party/
 output_dir: ./doc/html/publish/
 project_github: https://github.com/szaghi/FriVolous
 summary: Finite Volume block-structured Fortran abstract class
