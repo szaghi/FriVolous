@@ -4,3 +4,6 @@
 [submodule "src/third_party/FOODIE"]
 	path = src/third_party/FOODIE
 	url = https://github.com/Fortran-FOSS-Programmers/FOODIE
+[submodule "src/third_party/PENF"]
+	path = src/third_party/PENF
+	url = https://github.com/szaghi/PENF
